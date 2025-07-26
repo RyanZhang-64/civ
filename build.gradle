@@ -1,0 +1,21 @@
+// build.gradle
+
+plugins {
+    id 'java'
+    id 'application'
+}
+
+repositories {
+    // This is still good to have for other potential libraries.
+    mavenCentral()
+}
+
+dependencies {
+    // This line tells Gradle to use the local core-4.4.4.jar file from the 'libs' folder.
+    implementation files('libs/core-4.4.4.jar')
+}
+
+application {
+    // This sets the main entry point to your program.
+    mainClass = 'game.Main'
+}
