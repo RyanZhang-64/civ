@@ -1,12 +1,18 @@
 package game.rendering;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 import game.Camera;
 import game.GameConfig;
+import game.core.CivilizationManager;
+import game.core.CityManager;
 import game.core.UnitManager;
 import game.core.VisibilityManager;
+import game.model.City;
+import game.model.Civilization;
 import game.model.Hex;
 import game.model.HexGrid;
 import game.model.Unit;
@@ -14,22 +20,33 @@ import game.model.VisibilityState;
 import processing.core.PApplet;
 import processing.core.PVector;
 
+/**
+ * Enum for city visibility states from the perspective of the current civilization.
+ */
+enum CityVisibility {
+    OWN_CITY,           // Player owns this city - fully visible
+    DISCOVERED_FOREIGN, // Foreign city that has been discovered - partially visible
+    UNDISCOVERED        // Foreign city never seen - not visible
+}
+
 public class GameRenderer {
     private final PApplet p;
     private final Camera camera;
     private final HexGrid hexGrid;
     private final UnitManager unitManager;
-    private final VisibilityManager visibilityManager;
+    private final CivilizationManager civilizationManager;
+    private final CityManager cityManager;
     // The HexBoundaryCalculator is no longer needed for this simpler rendering.
     // We will keep it for the movement boundary, however.
     private final HexBoundaryCalculator hexBoundaryCalculator;
 
-    public GameRenderer(PApplet p, Camera cam, HexGrid grid, UnitManager um, VisibilityManager vm, HexBoundaryCalculator hbc) {
+    public GameRenderer(PApplet p, Camera cam, HexGrid grid, UnitManager um, CivilizationManager civManager, CityManager cityManager, HexBoundaryCalculator hbc) {
         this.p = p;
         this.camera = cam;
         this.hexGrid = grid;
         this.unitManager = um;
-        this.visibilityManager = vm;
+        this.civilizationManager = civManager;
+        this.cityManager = cityManager;
         this.hexBoundaryCalculator = hbc;
     }
 
@@ -41,10 +58,13 @@ public class GameRenderer {
 
         camera.beginTransform();
 
-        // The order is important: Grid -> Overlays -> Units
+        // The order is important: Grid -> City Territories -> Overlays -> Cities -> City Boundaries -> Units
         drawHexGrid();
+        drawCityTerritories();
         drawMovementRange();
         drawMovementBoundary();
+        drawCityBoundaries();
+        drawCities();
         drawUnits();
         drawSelectionIndicator();
 
@@ -55,8 +75,13 @@ public class GameRenderer {
      * Simplified method to draw the hex grid tile by tile, respecting visibility.
      */
     private void drawHexGrid() {
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) return;
+        
+        VisibilityManager currentVisibility = currentCiv.getVisibilityManager();
+        
         for (Hex hex : hexGrid.getAllHexes()) {
-            VisibilityState visibility = visibilityManager.getVisibilityState(hex);
+            VisibilityState visibility = currentVisibility.getVisibilityState(hex);
 
             // If the hex is completely undiscovered, we simply don't draw it.
             if (visibility == VisibilityState.UNDISCOVERED) {
@@ -104,17 +129,130 @@ public class GameRenderer {
     }
 
     private void drawUnits() {
-        for (Unit unit : unitManager.getUnits()) {
-            Hex hex = hexGrid.getHexAt(unit.q, unit.r);
-            if (hex != null && visibilityManager.getVisibilityState(hex) == VisibilityState.CURRENTLY_VISIBLE) {
-                float[] pixel = hexToPixel(unit.q, unit.r);
-                p.fill(unit.type.unitColor);
-                p.stroke(0);
-                p.strokeWeight(1.0f / camera.getZoom());
-                p.textAlign(PApplet.CENTER, PApplet.CENTER);
-                p.textSize(16.0f);
-                p.text(unit.type.symbol, pixel[0], pixel[1]);
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) return;
+        
+        VisibilityManager currentVisibility = currentCiv.getVisibilityManager();
+        
+        // Draw all units from all civilizations, but only if they're visible to current player
+        for (Civilization civ : civilizationManager.getAllCivilizations()) {
+            for (Unit unit : civ.getUnits()) {
+                Hex hex = hexGrid.getHexAt(unit.q, unit.r);
+                if (hex != null && currentVisibility.getVisibilityState(hex) == VisibilityState.CURRENTLY_VISIBLE) {
+                    float[] pixel = hexToPixel(unit.q, unit.r);
+                    // Use the unit's civilization color, not the unit type color
+                    p.fill(unit.owner.getPrimaryColor());
+                    p.stroke(0);
+                    p.strokeWeight(1.0f / camera.getZoom());
+                    p.textAlign(PApplet.CENTER, PApplet.CENTER);
+                    p.textSize(16.0f);
+                    p.text(unit.type.symbol, pixel[0], pixel[1]);
+                }
             }
+        }
+    }
+
+    private void drawCities() {
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) return;
+        
+        // Draw all cities based on their visibility state
+        for (City city : cityManager.getAllCities()) {
+            CityVisibility visibility = getCityVisibility(city, currentCiv);
+            
+            if (visibility != CityVisibility.UNDISCOVERED) {
+                drawCityMarker(city, visibility);
+            }
+        }
+    }
+
+    /**
+     * Draws a city marker with appropriate detail level based on visibility.
+     */
+    private void drawCityMarker(City city, CityVisibility visibility) {
+        float[] pixel = hexToPixel(city.getQ(), city.getR());
+        
+        // Draw city background circle
+        p.fill(city.getOwner().getPrimaryColor());
+        p.stroke(0);
+        p.strokeWeight(2.0f / camera.getZoom());
+        p.circle(pixel[0], pixel[1], GameConfig.HEX_RADIUS * 1.2f);
+        
+        // Draw city name
+        p.fill(255); // White text
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        p.textSize(12.0f);
+        p.text(city.getName(), pixel[0], pixel[1] - GameConfig.HEX_RADIUS * 0.8f);
+        
+        // Draw population (show for both own and discovered foreign cities)
+        p.textSize(10.0f);
+        if (visibility == CityVisibility.OWN_CITY) {
+            // Own city - show full information
+            p.text("Pop: " + city.getPopulation(), pixel[0], pixel[1] + GameConfig.HEX_RADIUS * 0.8f);
+        } else {
+            // Foreign discovered city - show basic information
+            p.text("Pop: " + city.getPopulation(), pixel[0], pixel[1] + GameConfig.HEX_RADIUS * 0.8f);
+        }
+    }
+
+    private void drawCityTerritories() {
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) return;
+        
+        // Draw territory tiles for all discovered cities
+        for (City city : cityManager.getAllCities()) {
+            CityVisibility visibility = getCityVisibility(city, currentCiv);
+            
+            if (visibility != CityVisibility.UNDISCOVERED) {
+                drawCityTerritoryTiles(city, visibility);
+            }
+        }
+    }
+
+    private void drawCityBoundaries() {
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) return;
+        
+        // Draw boundaries for all discovered cities
+        for (City city : cityManager.getAllCities()) {
+            CityVisibility visibility = getCityVisibility(city, currentCiv);
+            
+            if (visibility != CityVisibility.UNDISCOVERED) {
+                drawCityBoundary(city);
+            }
+        }
+    }
+    
+    private void drawCityTerritory(City city) {
+        // Draw a simple 1-hex radius territory around the city
+        List<Hex> territoryHexes = new ArrayList<>();
+        
+        // Add the city hex itself
+        Hex cityHex = hexGrid.getHexAt(city.getQ(), city.getR());
+        if (cityHex != null) {
+            territoryHexes.add(cityHex);
+        }
+        
+        // Add all neighboring hexes (1-hex radius)
+        for (Hex neighbor : hexGrid.getNeighbors(cityHex)) {
+            territoryHexes.add(neighbor);
+        }
+        
+        // Draw territory boundary using the existing boundary calculator
+        Set<Hex> territorySet = new HashSet<>(territoryHexes);
+        List<List<PVector>> boundaries = hexBoundaryCalculator.calculateBoundaries(territorySet, hexGrid);
+        
+        // Draw the boundary lines
+        p.stroke(city.getOwner().getPrimaryColor());
+        p.strokeWeight(3.0f / camera.getZoom());
+        p.noFill();
+        
+        for (List<PVector> boundary : boundaries) {
+            p.beginShape();
+            for (PVector v : boundary) {
+                p.vertex(v.x, v.y);
+            }
+            p.endShape();
         }
     }
 
@@ -151,5 +289,91 @@ public class GameRenderer {
         float g = p.green(originalColor) * GameConfig.DISCOVERED_BRIGHTNESS_MULTIPLIER;
         float b = p.blue(originalColor) * GameConfig.DISCOVERED_BRIGHTNESS_MULTIPLIER;
         return p.color(r, g, b);
+    }
+
+    // =========================================================================
+    // City Visibility System
+    // =========================================================================
+
+    /**
+     * Determines the visibility state of a city from the perspective of the observer civilization.
+     */
+    private CityVisibility getCityVisibility(City city, Civilization observer) {
+        // Own city - always fully visible
+        if (city.getOwner().equals(observer)) {
+            return CityVisibility.OWN_CITY;
+        }
+        
+        // Foreign city - check if discovered
+        Hex cityHex = hexGrid.getHexAt(city.getQ(), city.getR());
+        VisibilityState hexVisibility = observer.getVisibilityManager().getVisibilityState(cityHex);
+        
+        if (hexVisibility != VisibilityState.UNDISCOVERED) {
+            return CityVisibility.DISCOVERED_FOREIGN;
+        }
+        
+        return CityVisibility.UNDISCOVERED;
+    }
+
+    /**
+     * Draws territory tiles for a city based on its visibility state.
+     */
+    private void drawCityTerritoryTiles(City city, CityVisibility visibility) {
+        List<Hex> territoryHexes = getCityTerritoryHexes(city);
+        
+        for (Hex hex : territoryHexes) {
+            p.stroke(0);
+            p.strokeWeight(1.0f / camera.getZoom());
+            
+            if (visibility == CityVisibility.OWN_CITY) {
+                // Own city territory - fully visible with bright colors
+                p.fill(hex.biome.biomeColor);
+            } else {
+                // Foreign discovered city - dimmed colors
+                p.fill(getDimmedColor(hex.biome.biomeColor));
+            }
+            
+            drawHexShape(hex);
+        }
+    }
+
+    /**
+     * Draws the boundary line around a city's territory.
+     */
+    private void drawCityBoundary(City city) {
+        List<Hex> territoryHexes = getCityTerritoryHexes(city);
+        Set<Hex> territorySet = new HashSet<>(territoryHexes);
+        List<List<PVector>> boundaries = hexBoundaryCalculator.calculateBoundaries(territorySet, hexGrid);
+        
+        // Draw the boundary lines
+        p.stroke(city.getOwner().getPrimaryColor());
+        p.strokeWeight(3.0f / camera.getZoom());
+        p.noFill();
+        
+        for (List<PVector> boundary : boundaries) {
+            p.beginShape();
+            for (PVector v : boundary) {
+                p.vertex(v.x, v.y);
+            }
+            p.endShape();
+        }
+    }
+
+    /**
+     * Gets the list of hexes that make up a city's territory (1-hex radius).
+     */
+    private List<Hex> getCityTerritoryHexes(City city) {
+        List<Hex> territoryHexes = new ArrayList<>();
+        
+        // Add the city hex itself
+        Hex cityHex = hexGrid.getHexAt(city.getQ(), city.getR());
+        if (cityHex != null) {
+            territoryHexes.add(cityHex);
+            
+            // Add all neighboring hexes (1-hex radius)
+            territoryHexes.addAll(hexGrid.getNeighbors(cityHex));
+        }
+        
+        return territoryHexes;
     }
 }

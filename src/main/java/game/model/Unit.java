@@ -22,6 +22,12 @@ public class Unit {
     public final UnitType type;
 
     /**
+     * The civilization that owns this unit.
+     * This is final and cannot be changed after creation.
+     */
+    public final Civilization owner;
+
+    /**
      * The current axial q-coordinate of the unit on the hex grid.
      */
     public int q;
@@ -42,11 +48,13 @@ public class Unit {
      * @param type The UnitType of this unit.
      * @param q    The initial q-coordinate.
      * @param r    The initial r-coordinate.
+     * @param owner The civilization that owns this unit.
      */
-    public Unit(UnitType type, int q, int r) {
+    public Unit(UnitType type, int q, int r, Civilization owner) {
         this.type = type;
         this.q = q;
         this.r = r;
+        this.owner = owner;
         this.currentMovementBudget = type.maxMovementBudget;
     }
 

@@ -11,6 +11,7 @@ import java.util.PriorityQueue;
 import processing.core.PApplet;  // Add this import
 import game.Camera;
 import game.GameConfig;
+import game.model.Civilization;
 import game.model.Hex;
 import game.model.HexGrid;
 import game.model.Unit;
@@ -20,49 +21,39 @@ import game.model.UnitType;
  * UnitManager.java
  *
  * PURPOSE:
- * Manages all unit-related logic, including creation, selection, movement,
- * and pathfinding. It acts as the central controller for all unit actions.
+ * Manages unit-related logic for the currently active civilization, including
+ * selection, movement, and pathfinding. Works with CivilizationManager to
+ * ensure only the current player's units can be controlled.
  */
 public class UnitManager {
 
     private final HexGrid hexGrid;
-    private final VisibilityManager visibilityManager;
-    private final List<Unit> units;
     private final Camera camera;
+    private final CivilizationManager civilizationManager;
 
     private Unit selectedUnit;
     private Map<Hex, Integer> reachableHexes; // Stores hex and the cost to reach it
     private int nextUnitIndex = 0; // Tracks the cycle for "Next Unit" button
 
-    public UnitManager(HexGrid grid, VisibilityManager vm, Camera camera) {
+    public UnitManager(HexGrid grid, Camera camera, CivilizationManager civManager) {
         this.hexGrid = grid;
-        this.visibilityManager = vm;
         this.camera = camera;
-        this.units = new ArrayList<>();
+        this.civilizationManager = civManager;
         this.selectedUnit = null;
         this.reachableHexes = new HashMap<>();
     }
 
     /**
-     * Creates a new unit, adds it to the game, and updates visibility.
-     * @param type The type of unit to create.
-     * @param q The initial q-coordinate.
-     * @param r The initial r-coordinate.
-     */
-    public void spawnUnit(UnitType type, int q, int r) {
-        Unit unit = new Unit(type, q, r);
-        units.add(unit);
-        visibilityManager.updateGlobalVisibility(units);
-    }
-
-    /**
-     * Attempts to select a unit at the given hex. If a unit is found, it becomes
-     * the selected unit and its movement range is calculated.
+     * Attempts to select a unit at the given hex. Only allows selection of
+     * units belonging to the current civilization.
      * @param hex The hex where the selection attempt occurs.
      */
     public void selectUnitAt(Hex hex) {
         deselectUnit();
-        for (Unit unit : units) {
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) return;
+        
+        for (Unit unit : currentCiv.getUnits()) {
             if (unit.q == hex.q && unit.r == hex.r) {
                 this.selectedUnit = unit;
                 calculateReachableHexes();
@@ -91,30 +82,25 @@ public class UnitManager {
         if (selectedUnit.currentMovementBudget >= cost) {
             selectedUnit.currentMovementBudget -= cost;
             selectedUnit.setPosition(targetHex.q, targetHex.r);
-            visibilityManager.updateGlobalVisibility(units);
+            // Update visibility for the unit's civilization
+            selectedUnit.owner.getVisibilityManager().updateGlobalVisibility(selectedUnit.owner.getUnits());
         }
         deselectUnit();
     }
 
     /**
-     * Refreshes the movement budget for all units in the game.
-     */
-    public void refreshAllUnits() {
-        for (Unit unit : units) {
-            unit.refreshMovement();
-        }
-        // If a unit was selected, recalculate its now larger movement range
-        if (selectedUnit != null) {
-            calculateReachableHexes();
-        }
-    }
-
-    /**
-     * Finds and selects the next unit that has movement points remaining.
+     * Finds and selects the next unit that has movement points remaining
+     * from the current civilization.
      */
     public void selectNextUnitWithMovement() {
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        if (currentCiv == null) {
+            deselectUnit();
+            return;
+        }
+        
         List<Unit> availableUnits = new ArrayList<>();
-        for (Unit unit : units) {
+        for (Unit unit : currentCiv.getUnits()) {
             if (unit.currentMovementBudget > 0) {
                 availableUnits.add(unit);
             }
@@ -173,7 +159,10 @@ public class UnitManager {
     }
 
     // --- Getters ---
-    public List<Unit> getUnits() { return units; }
+    public List<Unit> getUnits() { 
+        Civilization currentCiv = civilizationManager.getCurrentCivilization();
+        return currentCiv != null ? currentCiv.getUnits() : new ArrayList<>(); 
+    }
     public Unit getSelectedUnit() { return selectedUnit; }
     public Map<Hex, Integer> getReachableHexes() { return Collections.unmodifiableMap(reachableHexes); }
 
