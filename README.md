@@ -1,2 +1,2 @@
-# ProcessingCiv2
-A brand new, entirely vibe-coded Processing Civ
+# civ
+A brand new, entirely vibe-coded ProcessingCiv
