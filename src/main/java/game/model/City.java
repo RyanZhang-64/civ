@@ -17,8 +17,6 @@ import java.util.Queue;
  */
 public class City {
 
-    private static int nextId = 1;
-
     // Identity & Ownership
     private final int id;
     private final String name;
@@ -41,9 +39,10 @@ public class City {
      * @param owner The civilization that owns this city.
      * @param q The q-coordinate of the city.
      * @param r The r-coordinate of the city.
+     * @param id The unique ID for this city.
      */
-    public City(String name, Civilization owner, int q, int r) {
-        this.id = nextId++;
+    public City(String name, Civilization owner, int q, int r, int id) {
+        this.id = id;
         this.name = name;
         this.owner = owner;
         this.q = q;

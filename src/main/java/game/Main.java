@@ -15,7 +15,7 @@ public class Main extends PApplet {
 
     @Override
     public void setup() {
-        this.gameEngine = new GameEngine(this);
+        this.gameEngine = GameObjectFactory.createGameEngine(this);
         this.gameEngine.setup();
     }
 

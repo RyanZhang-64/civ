@@ -23,19 +23,36 @@ public class GameEngine {
     private final HexGrid hexGrid;
     private final GameRenderer gameRenderer;
     private final UIManager uiManager;
-    private final HexBoundaryCalculator hexBoundaryCalculator; // <-- FIX: Add field
+    private final HexBoundaryCalculator hexBoundaryCalculator;
 
-    public GameEngine(PApplet p) {
+    /**
+     * Constructs a GameEngine with all dependencies injected.
+     * Use GameObjectFactory.createGameEngine() to create instances.
+     *
+     * @param p The PApplet instance for rendering
+     * @param camera The camera for view management
+     * @param hexGrid The hex grid for the game world
+     * @param civilizationManager The civilization manager
+     * @param cityManager The city manager
+     * @param unitManager The unit manager
+     * @param uiManager The UI manager
+     * @param gameRenderer The game renderer
+     * @param inputHandler The input handler
+     * @param hexBoundaryCalculator The hex boundary calculator
+     */
+    public GameEngine(PApplet p, Camera camera, HexGrid hexGrid, CivilizationManager civilizationManager,
+                     CityManager cityManager, UnitManager unitManager, UIManager uiManager,
+                     GameRenderer gameRenderer, InputHandler inputHandler, HexBoundaryCalculator hexBoundaryCalculator) {
         this.p = p;
-        this.camera = new Camera(p);
-        this.hexGrid = new HexGrid();
-        this.civilizationManager = new CivilizationManager(hexGrid);
-        this.cityManager = new CityManager(hexGrid, civilizationManager);
-        this.unitManager = new UnitManager(hexGrid, camera, civilizationManager);
-        this.uiManager = new UIManager(p, unitManager, civilizationManager, cityManager, camera);
-        this.hexBoundaryCalculator = new HexBoundaryCalculator(p);
-        this.gameRenderer = new GameRenderer(p, camera, hexGrid, unitManager, civilizationManager, cityManager, hexBoundaryCalculator);
-        this.inputHandler = new InputHandler(p, camera, hexGrid, unitManager, uiManager);
+        this.camera = camera;
+        this.hexGrid = hexGrid;
+        this.civilizationManager = civilizationManager;
+        this.cityManager = cityManager;
+        this.unitManager = unitManager;
+        this.uiManager = uiManager;
+        this.gameRenderer = gameRenderer;
+        this.inputHandler = inputHandler;
+        this.hexBoundaryCalculator = hexBoundaryCalculator;
     }
 
     public void setup() {
