@@ -1,0 +1,8 @@
+{
+    "files.exclude": {
+        "**/*.class": true,
+        "**/build/": true,
+        "**/.gradle/": true,
+        "**/gradle/wrapper/": false
+    }
+}

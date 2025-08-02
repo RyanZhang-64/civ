@@ -1,6 +1,7 @@
 package game.core;
 
 import game.Camera;
+import game.model.City;
 import game.GameConfig;
 import game.model.Hex;
 import game.model.HexGrid;
@@ -22,6 +23,7 @@ public class InputHandler {
     private final HexGrid hexGrid;
     private final UnitManager unitManager;
     private final UIManager uiManager;
+    private final CityManager cityManager;
 
     private boolean isDragging = false;
     private float initialMouseX;
@@ -29,12 +31,13 @@ public class InputHandler {
     private boolean hasMovedSinceClick = false;
     private Hex clickedHex = null;
 
-    public InputHandler(PApplet p, Camera cam, HexGrid grid, UnitManager um, UIManager uim) {
+    public InputHandler(PApplet p, Camera cam, HexGrid grid, UnitManager um, UIManager uim, CityManager cm) {
         this.p = p;
         this.camera = cam;
         this.hexGrid = grid;
         this.unitManager = um;
         this.uiManager = uim;
+        this.cityManager = cm;
     }
 
     public void handleMousePressed() {
@@ -62,8 +65,11 @@ public class InputHandler {
 
     public void handleMouseReleased() {
         if (isDragging && !hasMovedSinceClick && clickedHex != null) {
-            // This was a click (no movement), so handle the hex click now
-            if (unitManager.getSelectedUnit() != null && unitManager.getReachableHexes().containsKey(clickedHex)) {
+            // Check for city click first
+            City cityAtHex = cityManager.getCityAt(clickedHex.q, clickedHex.r);
+            if (cityAtHex != null) {
+                uiManager.showProductionMenuForCity(cityAtHex);
+            } else if (unitManager.getSelectedUnit() != null && unitManager.getReachableHexes().containsKey(clickedHex)) {
                 unitManager.moveSelectedUnit(clickedHex);
             } else {
                 unitManager.selectUnitAt(clickedHex);
@@ -94,6 +100,13 @@ public class InputHandler {
     }
 
     public void handleMouseWheel(MouseEvent event) {
+        // Check if UI should handle the scroll first
+        if (uiManager.isProductionMenuVisible()) {
+            uiManager.handleScroll(event.getCount());
+            return;
+        }
+        
+        // Otherwise handle as camera zoom
         float zoomFactor = (event.getCount() < 0) ? GameConfig.ZOOM_SENSITIVITY : 1.0f / GameConfig.ZOOM_SENSITIVITY;
         camera.zoom(zoomFactor, p.mouseX, p.mouseY);
     }

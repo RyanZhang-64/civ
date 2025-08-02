@@ -360,20 +360,11 @@ public class GameRenderer {
     }
 
     /**
-     * Gets the list of hexes that make up a city's territory (1-hex radius).
+     * Gets the list of hexes that make up a city's territory.
+     * Uses the city's actual owned tiles for dynamic border expansion.
      */
     private List<Hex> getCityTerritoryHexes(City city) {
-        List<Hex> territoryHexes = new ArrayList<>();
-        
-        // Add the city hex itself
-        Hex cityHex = hexGrid.getHexAt(city.getQ(), city.getR());
-        if (cityHex != null) {
-            territoryHexes.add(cityHex);
-            
-            // Add all neighboring hexes (1-hex radius)
-            territoryHexes.addAll(hexGrid.getNeighbors(cityHex));
-        }
-        
-        return territoryHexes;
+        // Use the city's actual owned tiles instead of hardcoded 1-hex radius
+        return new ArrayList<>(city.getOwnedTiles());
     }
 }

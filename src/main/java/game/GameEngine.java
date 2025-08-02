@@ -8,7 +8,6 @@ import game.model.HexGrid;
 import game.rendering.GameRenderer;
 import game.rendering.HexBoundaryCalculator; // <-- FIX: Import the calculator
 import game.rendering.UIManager;
-import game.Camera;
 import processing.core.PApplet;
 import processing.event.MouseEvent;
 
@@ -35,7 +34,7 @@ public class GameEngine {
         this.uiManager = new UIManager(p, unitManager, civilizationManager, cityManager, camera);
         this.hexBoundaryCalculator = new HexBoundaryCalculator(p);
         this.gameRenderer = new GameRenderer(p, camera, hexGrid, unitManager, civilizationManager, cityManager, hexBoundaryCalculator);
-        this.inputHandler = new InputHandler(p, camera, hexGrid, unitManager, uiManager);
+        this.inputHandler = new InputHandler(p, camera, hexGrid, unitManager, uiManager, cityManager);
     }
 
     public void setup() {

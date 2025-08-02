@@ -15,7 +15,6 @@ import game.model.Civilization;
 import game.model.Hex;
 import game.model.HexGrid;
 import game.model.Unit;
-import game.model.UnitType;
 
 /**
  * UnitManager.java

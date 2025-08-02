@@ -1,16 +1,17 @@
 package game.rendering;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import game.Camera;
 import game.GameConfig;
 import game.core.CivilizationManager;
 import game.core.CityManager;
 import game.core.UnitManager;
+import game.model.City;
 import game.model.Unit;
 import game.model.UnitType;
 import processing.core.PApplet;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * UIManager.java
@@ -27,6 +28,7 @@ public class UIManager {
     private final CityManager cityManager;
     private final Camera camera;
     private final List<UIButton> buttons;
+    private final ProductionMenuUI productionMenu;
 
     public UIManager(PApplet p, UnitManager um, CivilizationManager cm, CityManager cityManager, Camera camera) {
         this.p = p;
@@ -35,6 +37,7 @@ public class UIManager {
         this.cityManager = cityManager;
         this.camera = camera;
         this.buttons = new ArrayList<>();
+        this.productionMenu = new ProductionMenuUI(p);
         createButtons();
     }
 
@@ -63,6 +66,9 @@ public class UIManager {
         if (selectedUnit != null && selectedUnit.type == UnitType.SETTLER) {
             renderFoundCityButton();
         }
+        
+        // Render production menu if visible
+        productionMenu.render();
     }
     
     /**
@@ -84,7 +90,12 @@ public class UIManager {
      * @return true if a UI element handled the click, false otherwise.
      */
     public boolean handleMousePress(float mouseX, float mouseY) {
-        // Check regular buttons first
+        // Check production menu first (highest priority)
+        if (productionMenu.handleMouseClick(mouseX, mouseY)) {
+            return true;
+        }
+        
+        // Check regular buttons
         for (UIButton button : buttons) {
             if (button.isClicked(mouseX, mouseY)) {
                 button.onClick();
@@ -184,6 +195,29 @@ public class UIManager {
                 // Deselect the unit since it's been consumed
                 unitManager.deselectUnit();
             }
+        }
+    }
+
+    // Add methods for showing the production menu
+    public void showProductionMenuForCity(City city) {
+        productionMenu.showCitySummary(city); // Changed from showForCity
+    }
+
+    public boolean isProductionMenuVisible() {
+        return productionMenu.isVisible();
+    }
+
+    // Add scroll handling method
+    public void handleScroll(float scrollAmount) {
+        if (productionMenu.isVisible()) {
+            productionMenu.handleScroll(scrollAmount);
+        }
+    }
+
+    // Add this new method to UIManager
+    public void handleKeyPressed(int keyCode) {
+        if (productionMenu.isVisible()) {
+            productionMenu.handleKeyPressed(keyCode);
         }
     }
 }

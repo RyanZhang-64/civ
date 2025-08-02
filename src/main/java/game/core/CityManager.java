@@ -14,6 +14,7 @@ import game.model.Hex;
 import game.model.HexGrid;
 import game.model.Unit;
 import game.model.UnitType;
+import game.model.UnitType;
 
 /**
  * CityManager.java
@@ -66,6 +67,17 @@ public class CityManager {
         // Create the new city
         City newCity = new City(cityName, settler.owner, settler.q, settler.r);
         
+        // Initialize city with starting territory (7 tiles: city center + 6 neighbors)
+        Set<Hex> initialTerritory = getInitialCityTerritory(newCity);
+        newCity.setOwnedTiles(initialTerritory);
+        newCity.setWorkableTiles(new HashSet<>(initialTerritory));
+        
+        // Initialize border growth system
+        initializeCityBorderGrowth(newCity);
+        
+        // Automatically assign the best tiles to the new city
+        assignBestTilesToCity(newCity);
+        
         // Displace foreign units from the new city's territory
         displaceUnitsFromCityTerritory(newCity);
         
@@ -97,13 +109,22 @@ public class CityManager {
      * @param city The city to process.
      */
     private void processCityTurn(City city) {
-        // Simple production: cities generate 2 production per turn
-        int productionPerTurn = 2;
+        // Use tile-based yields for production and food
+        int productionPerTurn = city.calculateProductionPerTurn();
         city.advanceProduction(productionPerTurn);
         
-        // Simple food: cities generate 2 food per turn
-        int foodPerTurn = 2;
+        int foodPerTurn = city.calculateFoodPerTurn();
         city.addFood(foodPerTurn);
+        
+        // Process culture accumulation and border expansion
+        int culturePerTurn = city.getCulture();
+        city.addCulture(culturePerTurn);
+        
+        // Check if city needs ring recalculation after border expansion
+        if (city.needsRingRecalculation()) {
+            recalculateExpansionRings(city);
+            city.clearRingRecalculationFlag();
+        }
     }
 
     /**
@@ -203,24 +224,15 @@ public class CityManager {
     }
 
     /**
-     * Gets the territory controlled by a city (1-hex radius).
+     * Gets the territory controlled by a city.
+     * Uses the city's actual owned tiles for dynamic border growth.
      *
-     * @param city The city.
+     * @param city The city to get territory for.
      * @return Set of hexes in the city's territory.
      */
     private Set<Hex> getCityTerritory(City city) {
-        Set<Hex> territory = new HashSet<>();
-        Hex cityHex = hexGrid.getHexAt(city.getQ(), city.getR());
-        
-        if (cityHex != null) {
-            // Add city hex
-            territory.add(cityHex);
-            
-            // Add all neighbors (1-hex radius)
-            territory.addAll(hexGrid.getNeighbors(cityHex));
-        }
-        
-        return territory;
+        // Return the city's actual owned tiles instead of fixed 1-hex radius
+        return city.getOwnedTiles();
     }
 
     /**
@@ -343,5 +355,207 @@ public class CityManager {
             }
         }
         return false;
+    }
+
+    /**
+     * Automatically assigns the best tiles to a newly founded city.
+     * Citizens are assigned to tiles with the highest combined yields.
+     *
+     * @param city The city to assign tiles to.
+     */
+    private void assignBestTilesToCity(City city) {
+        // Get all workable tiles in city territory
+        Set<Hex> workableTiles = city.getWorkableTiles();
+        
+        // Sort tiles by total yield (food + production)
+        List<Hex> sortedTiles = workableTiles.stream()
+            .filter(hex -> hex.biome.isWorkable())
+            .sorted((hex1, hex2) -> {
+                int yield1 = hex1.biome.getTotalYield();
+                int yield2 = hex2.biome.getTotalYield();
+                return Integer.compare(yield2, yield1); // Descending order
+            })
+            .collect(java.util.stream.Collectors.toList());
+        
+        // Assign the best tiles up to the city's population
+        int citizensToAssign = Math.min(city.getPopulation(), sortedTiles.size());
+        for (int i = 0; i < citizensToAssign; i++) {
+            city.assignCitizenToTile(sortedTiles.get(i));
+        }
+    }
+
+    /**
+     * Calculates the hexagonal distance between two hex tiles.
+     * Uses the standard hex distance formula: (|q1-q2| + |q1+r1-q2-r2| + |r1-r2|) / 2
+     *
+     * @param hex1 First hex tile
+     * @param hex2 Second hex tile  
+     * @return The distance between the hexes
+     */
+    private int hexDistance(Hex hex1, Hex hex2) {
+        return (Math.abs(hex1.q - hex2.q) + 
+                Math.abs(hex1.q + hex1.r - hex2.q - hex2.r) + 
+                Math.abs(hex1.r - hex2.r)) / 2;
+    }
+
+    /**
+     * Calculates unowned tiles organized by distance rings from city center.
+     * Each ring contains only unowned, expandable hexes at exactly that distance.
+     * This creates proper concentric hexagonal rings for expansion.
+     * Note: Cities start with distance 0 (center) + distance 1 (neighbors) for free,
+     * so expansion begins at distance 2.
+     *
+     * @param city The city to calculate rings for
+     * @return List of sets, where each set contains unowned tiles at that distance
+     */
+    public List<Set<Hex>> calculateUnownedTilesPerRing(City city) {
+        List<Set<Hex>> unownedRings = new ArrayList<>();
+        Hex cityCenter = hexGrid.getHexAt(city.getQ(), city.getR());
+        
+        if (cityCenter == null) {
+            System.out.println("DEBUG: Cannot find city center hex for " + city.getName());
+            return unownedRings;
+        }
+        
+        Set<Hex> ownedTiles = city.getOwnedTiles();
+        System.out.println("DEBUG: City " + city.getName() + " calculating rings. Owned tiles: " + ownedTiles.size());
+        
+        // Check each distance ring starting from 2 (cities get 0+1 for free)
+        for (int distance = 2; distance <= 6; distance++) {
+            Set<Hex> ringTiles = new HashSet<>();
+            
+            // Search in a square around the city center
+            int searchRadius = distance + 1;
+            int candidatesChecked = 0;
+            int validCandidates = 0;
+            int alreadyOwned = 0;
+            int ownedByOtherCity = 0;
+            int invalidTerrain = 0;
+            
+            for (int q = cityCenter.q - searchRadius; q <= cityCenter.q + searchRadius; q++) {
+                for (int r = cityCenter.r - searchRadius; r <= cityCenter.r + searchRadius; r++) {
+                    Hex candidate = hexGrid.getHexAt(q, r);
+                    candidatesChecked++;
+                    
+                    if (candidate != null && hexDistance(cityCenter, candidate) == distance) {
+                        validCandidates++;
+                        
+                        // Check why each tile is rejected
+                        if (ownedTiles.contains(candidate)) {
+                            alreadyOwned++;
+                            System.out.println("DEBUG: Tile (" + candidate.q + "," + candidate.r + 
+                                             ") already owned by " + city.getName());
+                        } else if (candidate.biome == Biome.PEAKS || candidate.biome == Biome.DEEP_OCEAN) {
+                            invalidTerrain++;
+                            System.out.println("DEBUG: Tile (" + candidate.q + "," + candidate.r + 
+                                             ") has invalid terrain: " + candidate.biome);
+                        } else if (isTileOwnedByAnyCity(candidate)) {
+                            ownedByOtherCity++;
+                            // isTileOwnedByAnyCity already prints debug info
+                        } else {
+                            ringTiles.add(candidate);
+                            System.out.println("DEBUG: Tile (" + candidate.q + "," + candidate.r + 
+                                             ") added to ring " + (distance-1) + " for " + city.getName());
+                        }
+                    }
+                }
+            }
+            
+            System.out.println("DEBUG: City " + city.getName() + " ring " + (distance-1) + 
+                              " (distance " + distance + ") - checked " + candidatesChecked + " candidates, " + 
+                              validCandidates + " at correct distance, " + 
+                              alreadyOwned + " already owned, " +
+                              ownedByOtherCity + " owned by other city, " +
+                              invalidTerrain + " invalid terrain, " +
+                              ringTiles.size() + " available for expansion");
+            
+            if (ringTiles.isEmpty()) {
+                System.out.println("DEBUG: City " + city.getName() + " no more expandable tiles at distance " + distance);
+                break; // No more expandable tiles at this distance
+            }
+            
+            unownedRings.add(ringTiles);
+        }
+        
+        System.out.println("DEBUG: City " + city.getName() + " total rings calculated: " + unownedRings.size());
+        return unownedRings;
+    }
+
+    /**
+     * Checks if a tile is already owned by any city.
+     *
+     * @param hex The hex to check
+     * @return true if the tile is owned by a city
+     */
+    private boolean isTileOwnedByAnyCity(Hex hex) {
+        for (City city : allCities) {
+            if (city.getOwnedTiles().contains(hex)) {
+                System.out.println("DEBUG: Tile (" + hex.q + "," + hex.r + ") already owned by " + city.getName());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Initializes the border growth system for a newly founded city.
+     *
+     * @param city The city to initialize
+     */
+    public void initializeCityBorderGrowth(City city) {
+        // Calculate unowned tiles per ring
+        List<Set<Hex>> unownedRings = calculateUnownedTilesPerRing(city);
+        
+        // Calculate expansion rings for reference (keep existing structure)
+        List<List<Hex>> rings = new ArrayList<>();
+        for (Set<Hex> ringSet : unownedRings) {
+            rings.add(new ArrayList<>(ringSet));
+        }
+        
+        // Pass the data to the city
+        city.setExpansionRings(rings);
+        city.setUnownedTilesPerRing(unownedRings);
+    }
+
+    /**
+     * Gets the initial 7-tile territory for a newly founded city.
+     *
+     * @param city The newly founded city
+     * @return Set of hexes forming the initial territory
+     */
+    private Set<Hex> getInitialCityTerritory(City city) {
+        Set<Hex> territory = new HashSet<>();
+        
+        // Add the city center
+        Hex cityHex = hexGrid.getHexAt(city.getQ(), city.getR());
+        if (cityHex != null) {
+            territory.add(cityHex);
+            
+            // Add the 6 neighboring tiles
+            territory.addAll(hexGrid.getNeighbors(cityHex));
+        }
+        
+        return territory;
+    }
+
+    /**
+     * Recalculates expansion rings for a city after border expansion.
+     * This should be called whenever a city's territory changes.
+     *
+     * @param city The city to recalculate rings for
+     */
+    public void recalculateExpansionRings(City city) {
+        // Calculate new unowned tiles per ring based on current owned tiles
+        List<Set<Hex>> newUnownedRings = calculateUnownedTilesPerRing(city);
+        
+        // Calculate expansion rings for reference (keep existing structure)
+        List<List<Hex>> newRings = new ArrayList<>();
+        for (Set<Hex> ringSet : newUnownedRings) {
+            newRings.add(new ArrayList<>(ringSet));
+        }
+        
+        // Update the city's expansion data
+        city.setExpansionRings(newRings);
+        city.setUnownedTilesPerRing(newUnownedRings);
     }
 }
