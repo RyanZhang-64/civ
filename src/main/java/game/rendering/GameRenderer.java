@@ -14,9 +14,13 @@ import game.core.VisibilityManager;
 import game.model.City;
 import game.model.Civilization;
 import game.model.Hex;
-import game.model.HexGrid;
 import game.model.Unit;
 import game.model.VisibilityState;
+import game.model.HexGrid;
+import game.model.BoundarySegment;
+import game.model.DualBoundary;
+import game.model.AttackTarget;
+import game.model.enums.BoundaryType;
 import processing.core.PApplet;
 import processing.core.PVector;
 
@@ -63,6 +67,7 @@ public class GameRenderer {
         drawCityTerritories();
         drawMovementRange();
         drawMovementBoundary();
+        drawAttackableEnemyIndicators(); // NEW - Draw attack range indicators
         drawCityBoundaries();
         drawCities();
         drawUnits();
@@ -128,6 +133,75 @@ public class GameRenderer {
         }
     }
 
+    /**
+     * Draws attack range indicators for all attackable enemy units.
+     * Uses inner boundary rendering to highlight enemies within attack range.
+     */
+    private void drawAttackableEnemyIndicators() {
+        List<AttackTarget> attackTargets = unitManager.getAttackableTargets();
+        
+        if (attackTargets.isEmpty()) {
+            return;
+        }
+        
+        // Draw inner boundary around each attackable enemy
+        for (AttackTarget target : attackTargets) {
+            drawAttackableEnemyBoundary(target.getTargetUnit());
+        }
+    }
+    
+    /**
+     * Draws an inner boundary around a single attackable enemy unit.
+     * Uses the existing boundary calculation system for consistency.
+     */
+    private void drawAttackableEnemyBoundary(Unit enemyUnit) {
+        // Create single-hex set for the enemy unit
+        Hex enemyHex = hexGrid.getHexAt(enemyUnit.q, enemyUnit.r);
+        if (enemyHex == null) return;
+        
+        Set<Hex> enemyHexSet = new HashSet<>();
+        enemyHexSet.add(enemyHex);
+        
+        try {
+            // Calculate dual boundary with inner highlight
+            DualBoundary boundary = hexBoundaryCalculator.calculateDualBoundary(
+                enemyHexSet, hexGrid, 
+                -5.0f, // Inner offset for attack indicator
+                0.0f   // No outer boundary needed
+            );
+            
+            // Render inner boundary in attack indicator color
+            renderBoundarySegments(boundary.getInnerBoundary(), GameConfig.ATTACK_TARGET_COLOR);
+        } catch (Exception e) {
+            // Fallback: draw a simple circle indicator if boundary calculation fails
+            float[] pixel = hexToPixel(enemyUnit.q, enemyUnit.r);
+            p.stroke(GameConfig.ATTACK_TARGET_COLOR);
+            p.strokeWeight(3.0f / camera.getZoom());
+            p.noFill();
+            p.circle(pixel[0], pixel[1], GameConfig.HEX_RADIUS * 1.8f);
+        }
+    }
+    
+    /**
+     * Renders boundary segments with specified color.
+     */
+    private void renderBoundarySegments(List<BoundarySegment> segments, int color) {
+        if (segments.isEmpty()) return;
+        
+        p.stroke(color);
+        p.strokeWeight(2.5f / camera.getZoom());
+        p.noFill();
+        
+        p.beginShape();
+        for (BoundarySegment segment : segments) {
+            PVector start = segment.getStartPoint();
+            PVector end = segment.getEndPoint();
+            p.vertex(start.x, start.y);
+            p.vertex(end.x, end.y);
+        }
+        p.endShape();
+    }
+
     private void drawUnits() {
         Civilization currentCiv = civilizationManager.getCurrentCivilization();
         if (currentCiv == null) return;
@@ -140,15 +214,48 @@ public class GameRenderer {
                 Hex hex = hexGrid.getHexAt(unit.q, unit.r);
                 if (hex != null && currentVisibility.getVisibilityState(hex) == VisibilityState.CURRENTLY_VISIBLE) {
                     float[] pixel = hexToPixel(unit.q, unit.r);
-                    // Use the unit's civilization color, not the unit type color
+                    
+                    // Draw unit symbol
                     p.fill(unit.owner.getPrimaryColor());
                     p.stroke(0);
                     p.strokeWeight(1.0f / camera.getZoom());
                     p.textAlign(PApplet.CENTER, PApplet.CENTER);
                     p.textSize(16.0f);
                     p.text(unit.type.symbol, pixel[0], pixel[1]);
+                    
+                    // Draw health bar if unit is damaged and can be damaged
+                    if (unit.currentHealth < unit.maxHealth && unit.maxHealth > 0) {
+                        drawHealthBar(unit, pixel[0], pixel[1]);
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * Draws a health bar above a unit showing current health status.
+     * Uses config values for sizing and colors.
+     */
+    private void drawHealthBar(Unit unit, float centerX, float centerY) {
+        float zoom = camera.getZoom();
+        float barWidth = GameConfig.HEX_RADIUS * GameConfig.HEALTH_BAR_WIDTH_MULTIPLIER / zoom;
+        float barHeight = GameConfig.HEALTH_BAR_HEIGHT / zoom;
+        float barY = centerY - GameConfig.HEX_RADIUS / zoom - GameConfig.HEALTH_BAR_OFFSET / zoom;
+        
+        // Calculate health percentage
+        float healthPercent = unit.getHealthPercentage();
+        
+        // Draw background (red)
+        p.fill(GameConfig.HEALTH_BAR_BACKGROUND_COLOR);
+        p.stroke(GameConfig.HEALTH_BAR_BORDER_COLOR);
+        p.strokeWeight(1.0f / zoom);
+        p.rect(centerX - barWidth/2, barY, barWidth, barHeight);
+        
+        // Draw health foreground (green)
+        if (healthPercent > 0) {
+            p.fill(GameConfig.HEALTH_BAR_FOREGROUND_COLOR);
+            p.noStroke();
+            p.rect(centerX - barWidth/2, barY, barWidth * healthPercent, barHeight);
         }
     }
 
@@ -218,7 +325,7 @@ public class GameRenderer {
             CityVisibility visibility = getCityVisibility(city, currentCiv);
             
             if (visibility != CityVisibility.UNDISCOVERED) {
-                drawCityBoundary(city);
+                drawDualCityBoundary(city);
             }
         }
     }
@@ -271,8 +378,8 @@ public class GameRenderer {
         p.beginShape();
         for (int i = 0; i < 6; i++) {
             float angle = PApplet.PI / 3 * i + PApplet.PI / 2;
-            float x = center[0] + GameConfig.HEX_RADIUS * p.cos(angle);
-            float y = center[1] + GameConfig.HEX_RADIUS * p.sin(angle);
+            float x = center[0] + GameConfig.HEX_RADIUS * PApplet.cos(angle);
+            float y = center[1] + GameConfig.HEX_RADIUS * PApplet.sin(angle);
             p.vertex(x, y);
         }
         p.endShape(PApplet.CLOSE);
@@ -357,6 +464,100 @@ public class GameRenderer {
             }
             p.endShape();
         }
+    }
+
+    /**
+     * Draws dual-tone city boundaries using the new boundary system.
+     * Renders both inner and outer boundaries for enhanced visual effect.
+     * 
+     * @param city The city whose territory boundaries to draw
+     */
+    private void drawDualCityBoundary(City city) {
+        List<Hex> territoryHexes = getCityTerritoryHexes(city);
+        if (territoryHexes.isEmpty()) {
+            return;
+        }
+        
+        Set<Hex> territorySet = new HashSet<>(territoryHexes);
+        
+        try {
+            // Calculate dual boundary with configured offsets
+            float hexSize = GameConfig.HEX_RADIUS;
+            float innerOffset = BoundaryRenderConfig.DEFAULT_INNER_OFFSET * hexSize;
+            float outerOffset = BoundaryRenderConfig.DEFAULT_OUTER_OFFSET * hexSize;
+            
+            DualBoundary dualBoundary = hexBoundaryCalculator.calculateDualBoundary(
+                territorySet, hexGrid, innerOffset, outerOffset);
+            
+            // Calculate line thicknesses to span from offset to hex edge
+            float innerThickness = BoundaryRenderConfig.calculateLineThickness(
+                BoundaryRenderConfig.DEFAULT_INNER_OFFSET, hexSize);
+            float outerThickness = BoundaryRenderConfig.calculateLineThickness(
+                BoundaryRenderConfig.DEFAULT_OUTER_OFFSET, hexSize);
+            
+            // Get civilization color for blending
+            int civilizationColor = city.getOwner().getPrimaryColor();
+            
+            // Use pure colors for the first civilization (ID 0), blended colors for others
+            boolean useBlendedColors = city.getOwner().getId() != 0;
+            
+            // Render outer boundary first (so inner draws on top)
+            int outerColor;
+            if (useBlendedColors) {
+                outerColor = BoundaryRenderConfig.blendColors(
+                    civilizationColor, 
+                    BoundaryRenderConfig.getColorForBoundaryType(BoundaryType.OUTER));
+            } else {
+                outerColor = BoundaryRenderConfig.getColorForBoundaryType(BoundaryType.OUTER);
+            }
+            
+            drawBoundarySegments(dualBoundary.getOuterBoundary(), outerColor, outerThickness);
+            
+            // Render inner boundary
+            int innerColor;
+            if (useBlendedColors) {
+                innerColor = BoundaryRenderConfig.blendColors(
+                    civilizationColor, 
+                    BoundaryRenderConfig.getColorForBoundaryType(BoundaryType.INNER));
+            } else {
+                innerColor = BoundaryRenderConfig.getColorForBoundaryType(BoundaryType.INNER);
+            }
+            
+            drawBoundarySegments(dualBoundary.getInnerBoundary(), innerColor, innerThickness);
+            
+        } catch (Exception e) {
+            // Fallback to standard boundary if dual calculation fails
+            drawCityBoundary(city);
+        }
+    }
+
+    /**
+     * Renders a list of boundary segments with specified appearance.
+     * 
+     * @param segments The boundary segments to render
+     * @param color The ARGB color for the boundary
+     * @param weight The line weight for the boundary
+     */
+    private void drawBoundarySegments(List<BoundarySegment> segments, int color, float weight) {
+        if (segments.isEmpty()) {
+            return;
+        }
+        
+        p.stroke(color);
+        p.strokeWeight(weight / camera.getZoom());
+        p.noFill();
+        
+        p.beginShape();
+        
+        // Add all vertices from the segments in order
+        for (int i = 0; i < segments.size(); i++) {
+            BoundarySegment segment = segments.get(i);
+            PVector start = segment.getStartPoint();
+            p.vertex(start.x, start.y);
+        }
+        
+        // Close the shape automatically - Processing will connect last vertex to first
+        p.endShape(PApplet.CLOSE);
     }
 
     /**

@@ -2,6 +2,8 @@ package game;
 
 import game.core.CivilizationManager;
 import game.core.CityManager;
+import game.core.CombatManager;
+import game.core.GameObjectPoolManager;
 import game.core.InputHandler;
 import game.core.UnitManager;
 import game.model.HexGrid;
@@ -15,6 +17,7 @@ public class GameEngine {
 
     private final PApplet p;
     private final Camera camera;
+    private final GameObjectPoolManager pools;
     private final InputHandler inputHandler;
     private final UnitManager unitManager;
     private final CivilizationManager civilizationManager;
@@ -23,14 +26,17 @@ public class GameEngine {
     private final GameRenderer gameRenderer;
     private final UIManager uiManager;
     private final HexBoundaryCalculator hexBoundaryCalculator; // <-- FIX: Add field
+    private final CombatManager combatManager; // Combat system
 
     public GameEngine(PApplet p) {
         this.p = p;
         this.camera = new Camera(p);
+        this.pools = new GameObjectPoolManager();
         this.hexGrid = new HexGrid();
         this.civilizationManager = new CivilizationManager(hexGrid);
         this.cityManager = new CityManager(hexGrid, civilizationManager);
         this.unitManager = new UnitManager(hexGrid, camera, civilizationManager);
+        this.combatManager = new CombatManager(); // Initialize combat system
         this.uiManager = new UIManager(p, unitManager, civilizationManager, cityManager, camera);
         this.hexBoundaryCalculator = new HexBoundaryCalculator(p);
         this.gameRenderer = new GameRenderer(p, camera, hexGrid, unitManager, civilizationManager, cityManager, hexBoundaryCalculator);
@@ -41,6 +47,13 @@ public class GameEngine {
         hexGrid.generate(p);
         civilizationManager.setCityManager(cityManager);
         civilizationManager.setUnitManager(unitManager);
+        civilizationManager.setPools(pools);
+        unitManager.setPools(pools);
+        unitManager.setCityManager(cityManager); // For illegal territory validation in combat
+        unitManager.setCombatManager(combatManager); // For combat resolution
+        combatManager.setUnitManager(unitManager); // For clearing selections when units die
+        cityManager.setPools(pools);
+        uiManager.setPools(pools);
         civilizationManager.initializeTestScenario();
     }
 
@@ -54,4 +67,12 @@ public class GameEngine {
     public void handleMouseDragged() { inputHandler.handleMouseDragged(); }
     public void handleMouseWheel(MouseEvent event) { inputHandler.handleMouseWheel(event); }
     public void handleKeyPressed() { inputHandler.handleKeyPressed(); }
+    
+    /**
+     * Gets object pool performance metrics.
+     * @return String with allocation count and pool efficiency.
+     */
+    public String getPoolMetrics() {
+        return pools.getAllocationMetrics();
+    }
 }

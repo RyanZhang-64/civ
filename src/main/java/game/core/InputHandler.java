@@ -1,10 +1,15 @@
 package game.core;
 
+import java.util.List;
+
 import game.Camera;
-import game.model.City;
 import game.GameConfig;
+import game.model.City;
 import game.model.Hex;
 import game.model.HexGrid;
+import game.model.AttackTarget;
+import game.model.Unit;
+import game.model.CombatResult;
 import game.rendering.UIManager;
 import processing.core.PApplet;
 import processing.core.PVector;
@@ -65,13 +70,24 @@ public class InputHandler {
 
     public void handleMouseReleased() {
         if (isDragging && !hasMovedSinceClick && clickedHex != null) {
-            // Check for city click first
+            // Priority 1: Check for attack command on enemy unit
+            if (handleAttackCommand(clickedHex)) {
+                // Attack command processed, clean up and return
+                isDragging = false;
+                hasMovedSinceClick = false;
+                clickedHex = null;
+                return;
+            }
+            
+            // Priority 2: Check for city click
             City cityAtHex = cityManager.getCityAt(clickedHex.q, clickedHex.r);
             if (cityAtHex != null) {
                 uiManager.showProductionMenuForCity(cityAtHex);
             } else if (unitManager.getSelectedUnit() != null && unitManager.getReachableHexes().containsKey(clickedHex)) {
+                // Priority 3: Move selected unit
                 unitManager.moveSelectedUnit(clickedHex);
             } else {
+                // Priority 4: Select unit at clicked hex
                 unitManager.selectUnitAt(clickedHex);
             }
         }
@@ -154,5 +170,63 @@ public class InputHandler {
         }
 
         return hexGrid.getHexAt(q, r);
+    }
+    
+    /**
+     * Checks if the clicked hex contains an attackable enemy unit.
+     * If so, executes attack command and returns true.
+     * 
+     * @param clickedHex The hex that was clicked
+     * @return true if attack command was processed, false otherwise
+     */
+    private boolean handleAttackCommand(Hex clickedHex) {
+        List<AttackTarget> attackTargets = unitManager.getAttackableTargets();
+        
+        for (AttackTarget target : attackTargets) {
+            Unit enemyUnit = target.getTargetUnit();
+            
+            // Check if clicked hex contains this attackable enemy
+            if (enemyUnit.q == clickedHex.q && enemyUnit.r == clickedHex.r) {
+                executeAttackCommand(target);
+                return true;
+            }
+        }
+        
+        return false; // No attackable enemy at this hex
+    }
+    
+    /**
+     * Executes an attack command using the combat system.
+     * Called when player clicks on an attackable enemy unit.
+     * 
+     * @param target The attack target to execute command against
+     */
+    private void executeAttackCommand(AttackTarget target) {
+        CombatResult result = unitManager.executeAttack(target);
+        
+        if (!result.isValid()) {
+            System.out.println("Attack failed: " + result.getErrorMessage());
+            return;
+        }
+        
+        // Enhanced console output with combat results
+        Unit attacker = unitManager.getSelectedUnit();
+        Unit defender = target.getTargetUnit();
+        
+        System.out.println("=== COMBAT RESOLVED ===");
+        System.out.println("Attacker: " + attacker.type + " (" + attacker.currentHealth + "/" + attacker.maxHealth + " HP)");
+        System.out.println("Defender: " + defender.type + " (" + defender.currentHealth + "/" + defender.maxHealth + " HP)");
+        System.out.println("Attacker dealt: " + result.getAttackerDamageDealt() + " damage");
+        System.out.println("Defender dealt: " + result.getDefenderDamageDealt() + " damage");
+        
+        if (result.hasWinner()) {
+            String winner = result.isDefenderKilled() ? "Attacker" : "Defender";
+            System.out.println("Winner: " + winner);
+            if (result.isDefenderKilled()) {
+                System.out.println("Attacker moves to (" + target.getTargetUnit().q + "," + target.getTargetUnit().r + ")");
+            }
+        }
+        
+        System.out.println("======================");
     }
 }

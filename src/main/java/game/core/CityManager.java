@@ -7,14 +7,14 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 
-import game.model.Biome;
+import game.events.CityFoundedEvent;
 import game.model.City;
 import game.model.Civilization;
 import game.model.Hex;
-import game.model.HexGrid;
 import game.model.Unit;
 import game.model.UnitType;
-import game.model.UnitType;
+import game.model.Biome;
+import game.model.HexGrid;
 
 /**
  * CityManager.java
@@ -33,6 +33,7 @@ public class CityManager {
     private final List<City> allCities;
     private final HexGrid hexGrid;
     private final CivilizationManager civilizationManager;
+    private GameObjectPoolManager pools;
 
     /**
      * Constructs a new CityManager.
@@ -84,6 +85,13 @@ public class CityManager {
         // Add city to the global list and to the civilization
         allCities.add(newCity);
         settler.owner.addCity(newCity);
+        
+        // Fire city founded event using pooled object if available
+        if (pools != null) {
+            CityFoundedEvent event = pools.getCityFoundedEvent(newCity);
+            // Event would be processed by GameEventManager here
+            pools.returnCityFoundedEvent(event);
+        }
         
         // Remove the settler unit (it's consumed)
         settler.owner.removeUnit(settler);
@@ -557,5 +565,12 @@ public class CityManager {
         // Update the city's expansion data
         city.setExpansionRings(newRings);
         city.setUnownedTilesPerRing(newUnownedRings);
+    }
+    
+    /**
+     * Sets the pool manager for optimized object allocation.
+     */
+    public void setPools(GameObjectPoolManager pools) {
+        this.pools = pools;
     }
 }

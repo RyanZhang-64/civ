@@ -1,7 +1,7 @@
 package game.rendering;
 
-import processing.core.PApplet;
 import game.model.City;
+import processing.core.PApplet;
 
 /**
  * CityProductivityPanel.java

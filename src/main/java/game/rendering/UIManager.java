@@ -4,11 +4,13 @@ import game.Camera;
 import game.GameConfig;
 import game.core.CivilizationManager;
 import game.core.CityManager;
+import game.core.GameObjectPoolManager;
 import game.core.UnitManager;
 import game.model.City;
 import game.model.Unit;
 import game.model.UnitType;
 import processing.core.PApplet;
+import processing.core.PConstants;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +31,7 @@ public class UIManager {
     private final Camera camera;
     private final List<UIButton> buttons;
     private final ProductionMenuUI productionMenu;
+    private GameObjectPoolManager pools;
 
     public UIManager(PApplet p, UnitManager um, CivilizationManager cm, CityManager cityManager, Camera camera) {
         this.p = p;
@@ -69,6 +72,11 @@ public class UIManager {
         
         // Render production menu if visible
         productionMenu.render();
+        
+        // Render debug info if enabled
+        if (GameConfig.DEBUG_SHOW_POOL_METRICS) {
+            renderDebugInfo();
+        }
     }
     
     /**
@@ -90,32 +98,70 @@ public class UIManager {
      * @return true if a UI element handled the click, false otherwise.
      */
     public boolean handleMousePress(float mouseX, float mouseY) {
-        // Check production menu first (highest priority)
-        if (productionMenu.handleMouseClick(mouseX, mouseY)) {
-            return true;
-        }
-        
-        // Check regular buttons
+        return handleProductionMenuClick(mouseX, mouseY) ||
+               handleRegularButtonClicks(mouseX, mouseY) ||
+               handleContextualButtons(mouseX, mouseY);
+    }
+
+    /**
+     * Handles clicks on the production menu (highest priority).
+     */
+    private boolean handleProductionMenuClick(float mouseX, float mouseY) {
+        return productionMenu.handleMouseClick(mouseX, mouseY);
+    }
+
+    /**
+     * Handles clicks on standard UI buttons.
+     */
+    private boolean handleRegularButtonClicks(float mouseX, float mouseY) {
         for (UIButton button : buttons) {
             if (button.isClicked(mouseX, mouseY)) {
                 button.onClick();
                 return true;
             }
         }
-        
-        // Check Found City button if a settler is selected
+        return false;
+    }
+
+    /**
+     * Handles clicks on contextual buttons that appear based on game state.
+     */
+    private boolean handleContextualButtons(float mouseX, float mouseY) {
+        return handleFoundCityButton(mouseX, mouseY) ||
+               handleOtherContextualButtons(mouseX, mouseY);
+    }
+
+    /**
+     * Handles the Found City button when a settler is selected.
+     */
+    private boolean handleFoundCityButton(float mouseX, float mouseY) {
         Unit selectedUnit = unitManager.getSelectedUnit();
-        if (selectedUnit != null && selectedUnit.type == UnitType.SETTLER) {
-            float x = p.width - GameConfig.BUTTON_WIDTH - GameConfig.BUTTON_MARGIN;
-            float y = p.height - (3 * GameConfig.BUTTON_HEIGHT) - (3 * GameConfig.BUTTON_MARGIN);
-            
-            FoundCityButton foundCityButton = new FoundCityButton(x, y, GameConfig.BUTTON_WIDTH, GameConfig.BUTTON_HEIGHT);
-            if (foundCityButton.isClicked(mouseX, mouseY)) {
-                foundCityButton.onClick();
-                return true;
-            }
+        if (selectedUnit == null || selectedUnit.type != UnitType.SETTLER) {
+            return false;
         }
         
+        FoundCityButton foundCityButton = createFoundCityButton();
+        if (foundCityButton.isClicked(mouseX, mouseY)) {
+            foundCityButton.onClick();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Creates the Found City button at the correct position.
+     */
+    private FoundCityButton createFoundCityButton() {
+        float x = p.width - GameConfig.BUTTON_WIDTH - GameConfig.BUTTON_MARGIN;
+        float y = p.height - (3 * GameConfig.BUTTON_HEIGHT) - (3 * GameConfig.BUTTON_MARGIN);
+        return new FoundCityButton(x, y, GameConfig.BUTTON_WIDTH, GameConfig.BUTTON_HEIGHT);
+    }
+
+    /**
+     * Extension point for future contextual buttons.
+     */
+    private boolean handleOtherContextualButtons(float mouseX, float mouseY) {
+        // Future: Handle other unit-specific buttons, city-specific buttons, etc.
         return false;
     }
 
@@ -219,5 +265,27 @@ public class UIManager {
         if (productionMenu.isVisible()) {
             productionMenu.handleKeyPressed(keyCode);
         }
+    }
+    
+    /**
+     * Sets the pool manager for debug display.
+     */
+    public void setPools(GameObjectPoolManager pools) {
+        this.pools = pools;
+    }
+    
+    /**
+     * Renders debug information in the top-left corner. Currently pool metrics
+     */
+    private void renderDebugInfo() {
+        if (pools == null) return;
+        
+        p.fill(255, 255, 255, 200); // Semi-transparent white background
+        p.rect(5, 5, 200, 25);
+        
+        p.fill(0); // Black text
+        p.textAlign(PConstants.LEFT, PConstants.TOP);
+        p.textSize(12);
+        p.text(pools.getAllocationMetrics(), 10, 10);
     }
 }

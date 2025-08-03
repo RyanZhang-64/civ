@@ -3,10 +3,11 @@ package game.core;
 import java.util.ArrayList;
 import java.util.List;
 
+import game.events.TurnChangedEvent;
 import game.model.Civilization;
-import game.model.HexGrid;
 import game.model.Unit;
 import game.model.UnitType;
+import game.model.HexGrid;
 
 /**
  * CivilizationManager.java
@@ -28,6 +29,7 @@ public class CivilizationManager {
     private final HexGrid hexGrid;
     private CityManager cityManager;
     private UnitManager unitManager;
+    private GameObjectPoolManager pools;
 
     /**
      * Constructs a new CivilizationManager.
@@ -53,25 +55,63 @@ public class CivilizationManager {
      * Initializes the game with two test civilizations.
      */
     public void initializeTestScenario() {
-        // Clear any existing civilizations
+        clearExistingGame();
+        createTestCivilizations();
+        spawnStartingUnits();
+        setInitialTurn();
+    }
+
+    /**
+     * Clears any existing game state for a fresh start.
+     */
+    private void clearExistingGame() {
         civilizations.clear();
+        currentCivilizationIndex = 0;
+    }
+
+    /**
+     * Creates the default test civilizations.
+     */
+    private void createTestCivilizations() {
+        Civilization civ1 = createCivilization(0, "Player 1", 0xFF0000FF);
+        Civilization civ2 = createCivilization(1, "Player 2", 0xFFFF0000);
         
-        // Create two test civilizations
-        Civilization civ1 = new Civilization(0, "Player 1", 0xFF0000FF, hexGrid); // Blue
-        Civilization civ2 = new Civilization(1, "Player 2", 0xFFFF0000, hexGrid); // Red
-        
-        // Add them to the manager
         addCivilization(civ1);
         addCivilization(civ2);
+    }
+
+    /**
+     * Helper method to create a civilization with standard parameters.
+     */
+    private Civilization createCivilization(int id, String name, int color) {
+        return new Civilization(id, name, color, hexGrid);
+    }
+
+    /**
+     * Spawns starting units for all civilizations.
+     */
+    private void spawnStartingUnits() {
+        // Player 1 starting position
+        spawnCivilizationStartingUnits(civilizations.get(0), 0, 0);
         
-        // Spawn starting units for each civilization at different locations
-        civ1.spawnUnit(UnitType.SCOUT, 0, 0);
-        civ1.spawnUnit(UnitType.SETTLER, 1, -1);
-        
-        civ2.spawnUnit(UnitType.SCOUT, 10, 10);
-        civ2.spawnUnit(UnitType.SETTLER, 11, 9);
-        
-        // Start with the first civilization
+        // Player 2 starting position  
+        spawnCivilizationStartingUnits(civilizations.get(1), 10, 10);
+    }
+
+    /**
+     * Spawns the standard starting units for a civilization.
+     * Includes combat units for testing the combat system.
+     */
+    private void spawnCivilizationStartingUnits(Civilization civ, int centerQ, int centerR) {
+        civ.spawnUnit(UnitType.SCOUT, centerQ, centerR);
+        civ.spawnUnit(UnitType.SETTLER, centerQ + 1, centerR - 1);
+        civ.spawnUnit(UnitType.WARRIOR, centerQ - 1, centerR + 1); // Add warrior for combat testing
+    }
+
+    /**
+     * Sets the initial turn state.
+     */
+    private void setInitialTurn() {
         currentCivilizationIndex = 0;
     }
 
@@ -82,25 +122,56 @@ public class CivilizationManager {
         if (civilizations.isEmpty()) return;
         
         Civilization currentCiv = getCurrentCivilization();
-        
-        // Refresh current civilization's units before ending their turn
+        endCurrentCivilizationTurn(currentCiv);
+        advanceToNextCivilization();
+        beginNewCivilizationTurn();
+    }
+
+    /**
+     * Handles all end-of-turn processing for the current civilization.
+     */
+    private void endCurrentCivilizationTurn(Civilization currentCiv) {
         currentCiv.refreshAllUnits();
         
-        // Process city turns for the current civilization
         if (cityManager != null) {
             cityManager.processCityTurns(currentCiv);
         }
         
-        // Clear unit selection when switching turns
+        // Clear any UI state tied to this civilization
+        clearCivilizationUIState();
+    }
+
+    /**
+     * Advances the turn index to the next civilization.
+     */
+    private void advanceToNextCivilization() {
+        Civilization previousCiv = getCurrentCivilization();
+        currentCivilizationIndex = (currentCivilizationIndex + 1) % civilizations.size();
+        Civilization newCiv = getCurrentCivilization();
+        
+        // Fire turn changed event using pooled object if available
+        if (pools != null) {
+            TurnChangedEvent event = pools.getTurnEvent(previousCiv, newCiv, currentCivilizationIndex);
+            // Event would be processed by GameEventManager here
+            pools.returnTurnEvent(event);
+        }
+    }
+
+    /**
+     * Handles any setup needed for the new civilization's turn.
+     */
+    private void beginNewCivilizationTurn() {
+        // Future: Add turn start notifications, AI processing, etc.
+    }
+
+    /**
+     * Clears UI state when switching civilizations.
+     */
+    private void clearCivilizationUIState() {
         if (unitManager != null) {
             unitManager.deselectUnit();
         }
-        
-        // Move to next civilization
-        currentCivilizationIndex = (currentCivilizationIndex + 1) % civilizations.size();
-        
-        // The new current civilization's units are automatically ready
-        // (they were refreshed when their turn ended previously)
+        // Future: Clear other UI state like selected cities, menus, etc.
     }
     
     /**
@@ -117,6 +188,13 @@ public class CivilizationManager {
      */
     public void setCityManager(CityManager cityManager) {
         this.cityManager = cityManager;
+    }
+    
+    /**
+     * Sets the pool manager for optimized object allocation.
+     */
+    public void setPools(GameObjectPoolManager pools) {
+        this.pools = pools;
     }
     
     /**
@@ -175,5 +253,13 @@ public class CivilizationManager {
      */
     public int getCurrentCivilizationIndex() {
         return currentCivilizationIndex;
+    }
+    
+    /**
+     * Gets object pool allocation metrics for performance monitoring.
+     * @return String with allocation statistics, or empty if no pools configured.
+     */
+    public String getPoolMetrics() {
+        return (pools != null) ? pools.getAllocationMetrics() : "No pools configured";
     }
 }

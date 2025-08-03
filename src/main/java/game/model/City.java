@@ -170,8 +170,7 @@ public class City {
      */
     public int getCulture() {
         // Base culture generation - will be enhanced with buildings/bonuses later
-        // return 1 + (population / 5); // 1 base + 1 per 5 population
-        return 500;
+        return 1 + (population / 5); // 1 base + 1 per 5 population
     }
 
     /**
